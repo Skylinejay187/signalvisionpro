@@ -1,0 +1,70 @@
+name: Signal Vision Pro — Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-visionos:
+    runs-on: macos-15
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out Vision Pro source
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.4
+        run: |
+          sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Install visionOS platform if missing
+        run: |
+          if ! xcodebuild -showsdks | grep -q 'xrsimulator'; then
+            xcodebuild -downloadPlatform visionOS
+          fi
+          xcodebuild -showsdks
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate visionOS Xcode project
+        run: xcodegen generate --spec project.yml
+
+      - name: Build Signal Vision Pro for simulator
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project SignalVisionPro.xcodeproj \
+            -scheme SignalVisionPro \
+            -configuration Release \
+            -sdk xrsimulator \
+            -destination 'generic/platform=visionOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/SignalVisionProDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build | tee "$RUNNER_TEMP/visionos-build.log"
+
+      - name: Package simulator app
+        if: success()
+        run: |
+          APP="$RUNNER_TEMP/SignalVisionProDerivedData/Build/Products/Release-xrsimulator/SignalVisionPro.app"
+          test -d "$APP"
+          mkdir -p output
+          ditto -c -k --sequesterRsrc --keepParent "$APP" output/SignalVisionPro-Simulator.zip
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SignalVisionPro-build-log
+          path: ${{ runner.temp }}/visionos-build.log
+          if-no-files-found: ignore
+
+      - name: Upload simulator app
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SignalVisionPro-simulator
+          path: output/SignalVisionPro-Simulator.zip
