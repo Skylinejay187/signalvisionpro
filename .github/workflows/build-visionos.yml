@@ -14,29 +14,39 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Find actual project folder
+      - name: Locate or unpack Vision Pro source
         shell: bash
         run: |
           set -euo pipefail
-          echo 'Repository root:'
-          ls -la
-          echo 'Project specifications found:'
-          find . -maxdepth 6 -name project.yml -not -path '*/AppleTVSource_vBRDC357/*' -not -path '*/.git/*' -print
-          if [[ -f project.yml ]]; then
-            spec='./project.yml'
-          else
-            mapfile -t specs < <(find . -maxdepth 6 -name project.yml -not -path '*/AppleTVSource_vBRDC357/*' -not -path '*/.git/*' | sort)
-            if (( ${#specs[@]} != 1 )); then
-              echo 'ERROR: Expected one visionOS project.yml. Upload the CONTENTS of Build 2 ZIP (including project.yml, Sources, SharedFromAppleTV, Resources) to this repo; do not upload only the workflow.' >&2
-              exit 1
-            fi
-            spec="${specs[0]}"
-          fi
-          project_dir="$(cd "$(dirname "$spec")" && pwd)"
-          echo "PROJECT_DIR=$project_dir" >> "$GITHUB_ENV"
-          echo "Using visionOS project: $project_dir"
-          test -d "$project_dir/Sources"
-          test -d "$project_dir/SharedFromAppleTV"
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import os, zipfile, sys
+          root = Path(os.environ['GITHUB_WORKSPACE']).resolve()
+          def valid(base):
+              return (base/'project.yml').is_file() and (base/'Sources').is_dir() and (base/'SharedFromAppleTV').is_dir()
+          def locate(base):
+              choices = [p.parent for p in base.rglob('project.yml') if 'AppleTVSource_vBRDC357' not in p.parts and '.git' not in p.parts and valid(p.parent)]
+              return sorted(set(choices), key=str)
+          options = locate(root)
+          if not options:
+              archives = sorted(root.glob('Signal-VisionPro_Build2*.zip'))
+              if len(archives) != 1:
+                  sys.exit('ERROR: Expected exactly one Build 2 source ZIP or extracted source. Upload the Build 2 ZIP or its contents (not just this workflow).')
+              target = root/'_visionos_source'
+              target.mkdir(exist_ok=True)
+              with zipfile.ZipFile(archives[0]) as z:
+                  for info in z.infolist():
+                      resolved = (target/info.filename).resolve()
+                      if not resolved.is_relative_to(target.resolve()):
+                          sys.exit('ERROR: Unsafe path in ZIP.')
+                  z.extractall(target)
+              options = locate(target)
+          if len(options) != 1:
+              sys.exit(f'ERROR: Expected one visionOS project; found {len(options)}: {options}')
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f'PROJECT_DIR={options[0]}\n')
+          print(f'Using visionOS project: {options[0]}')
+          PYTHON
 
       - name: Select available Xcode
         shell: bash
