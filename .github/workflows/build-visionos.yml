@@ -1,202 +1,139 @@
-name: Signal Vision Pro - Simulator and Device IPA
-
+name: Signal Vision Pro - ORIGINAL UNITY Build 9 compiler diagnostics
 on:
   workflow_dispatch:
   push:
     branches: [main]
-  pull_request:
-
 jobs:
-  build-visionos:
+  original-unity-visionos:
     runs-on: macos-15
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-
-      - name: Locate or unpack Vision Pro source (ZIP or extracted)
+      - uses: actions/checkout@v4
+      - name: Locate complete original Unity project (extracted or ZIP)
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PYTHON'
-          from pathlib import Path
           import os, sys, zipfile
-
+          from pathlib import Path
           root = Path(os.environ['GITHUB_WORKSPACE']).resolve()
-          def valid(path):
-              return ((path / 'project.yml').is_file()
-                      and (path / 'Sources').is_dir()
-                      and (path / 'SharedFromAppleTV').is_dir())
-          def locate(base):
-              return sorted((p.parent for p in base.rglob('project.yml')
-                             if '.git' not in p.parts
-                             and 'AppleTVSource_vBRDC357' not in p.parts
-                             and valid(p.parent)), key=str)
-
-          candidates = locate(root)
-          if candidates:
-              project = root if valid(root) else min(candidates, key=lambda p: (len(p.relative_to(root).parts), str(p)))
-              print(f'Found extracted visionOS source: {project}')
-          else:
-              archives = sorted((p for p in root.rglob('*.zip') if '.git' not in p.parts), key=str)
-              print('Source not extracted. Examining repository ZIP files:')
-              for archive in archives:
-                  print(f'  {archive.relative_to(root)}')
-              compatible = []
-              for archive in archives:
+          required = ('DebridChannelsTVOSApp.swift','UnityAppCore.swift','CatalogStore.swift',
+                      'MembershipEntitlementManager.swift','BackendProfileBackupClient.swift')
+          def valid(p):
+              return ((p/'project.yml').is_file() and
+                      all((p/'PortedSource'/f).is_file() for f in required) and
+                      (p/'PortedSource/PlaybackKit/PlaybackKitAetherSurface.swift').is_file() and
+                      (p/'PortedSource/PlaybackKit/PlaybackKitKSPlayerSurface.swift').is_file() and
+                      (p/'OriginalTVOS_vBRDC357/Sources/DebridChannelsTVOSApp.swift').is_file() and
+                      (p/'Scripts/prepare_visionos_dependencies.sh').is_file())
+          found = [p.parent for p in root.rglob('project.yml')
+                   if '.git' not in p.parts and '_visionos_source' not in p.parts and valid(p.parent)]
+          if not found:
+              archives = [p for p in root.rglob('*.zip') if '.git' not in p.parts]
+              print('Found ZIP files:',*[str(p.relative_to(root)) for p in archives],sep='\n  ')
+              candidates=[]
+              for path in archives:
                   try:
-                      with zipfile.ZipFile(archive) as z:
-                          names = set(z.namelist())
-                          for name in names:
-                              if name.endswith('project.yml') and 'AppleTVSource_vBRDC357/' not in name:
-                                  prefix = name[:-len('project.yml')]
-                                  if any(n.startswith(prefix+'Sources/') for n in names) and any(n.startswith(prefix+'SharedFromAppleTV/') for n in names):
-                                      compatible.append(archive)
-                                      break
-                  except (OSError, zipfile.BadZipFile):
-                      print(f'  Skipping unreadable ZIP: {archive}')
-              if not compatible:
-                  sys.exit('ERROR: No usable Vision Pro project found. Add the full Build 3 source ZIP to this repository OR extract it so project.yml, Sources/ and SharedFromAppleTV/ are present. A workflow-only ZIP is insufficient.')
-              # Prefer Build 3 over older source archives, independent of exact filename or folder.
-              def priority(path):
-                  text = path.name.lower()
-                  return (3 if 'build3' in text or 'build_3' in text else
-                          2 if 'build2' in text or 'build_2' in text else 1,
-                          path.stat().st_mtime)
-              archive = max(compatible, key=priority)
-              print(f'Extracting source archive: {archive.relative_to(root)}')
-              target = root / '_visionos_source'
-              target.mkdir(exist_ok=True)
-              with zipfile.ZipFile(archive) as z:
-                  for info in z.infolist():
-                      resolved = (target / info.filename).resolve()
-                      if not resolved.is_relative_to(target):
-                          sys.exit('ERROR: Unsafe archive path; refusing extraction.')
-                      if info.is_dir():
-                          continue
-                      # Disallow symlinks in user-supplied archives.
-                      if ((info.external_attr >> 16) & 0o170000) == 0o120000:
-                          sys.exit('ERROR: Symbolic links in source archive are not supported.')
-                  z.extractall(target)
-              extracted = locate(target)
-              if len(extracted) != 1:
-                  sys.exit(f'ERROR: Source ZIP must contain exactly one visionOS project; found {len(extracted)}: {extracted}')
-              project = extracted[0]
-          with open(os.environ['GITHUB_ENV'], 'a') as env:
-              env.write(f'PROJECT_DIR={project}\n')
-          print(f'Using visionOS project: {project}')
+                      with zipfile.ZipFile(path) as z:
+                          names=set(z.namelist())
+                          for n in names:
+                              if not n.endswith('project.yml'): continue
+                              prefix=n[:-len('project.yml')]
+                              if (all(prefix+'PortedSource/'+f in names for f in required) and
+                                  prefix+'OriginalTVOS_vBRDC357/Sources/DebridChannelsTVOSApp.swift' in names and
+                                  prefix+'Scripts/prepare_visionos_dependencies.sh' in names):
+                                  candidates.append(path); break
+                  except (OSError,zipfile.BadZipFile):
+                      print('Skipping invalid ZIP:',path)
+              if not candidates:
+                  sys.exit('ERROR: No full Unity Build 8/9 source found. Upload the COMPLETE GitHub-ready source ZIP, not the old Build 3/7 or a workflow-only ZIP.')
+              candidates.sort(key=lambda p:('build9' in p.name.lower(), 'build8' in p.name.lower(),p.stat().st_mtime),reverse=True)
+              chosen=candidates[0]
+              print('Extracting complete source:',chosen.relative_to(root))
+              dest=root/'_visionos_source';dest.mkdir(exist_ok=True)
+              with zipfile.ZipFile(chosen) as z:
+                  for item in z.infolist():
+                      target=(dest/item.filename).resolve()
+                      if not target.is_relative_to(dest.resolve()): sys.exit('ERROR: unsafe ZIP path')
+                      if ((item.external_attr>>16)&0o170000)==0o120000: sys.exit('ERROR: ZIP symlinks not allowed')
+                  z.extractall(dest)
+              found=[p.parent for p in dest.rglob('project.yml') if valid(p.parent)]
+          if len(found)!=1:
+              sys.exit(f'ERROR: expected exactly one complete Unity source project; found {found}. Remove older duplicate extracted project directories.')
+          project=found[0].resolve()
+          original=list((project/'OriginalTVOS_vBRDC357/Sources').rglob('*.swift'))
+          ported=list((project/'PortedSource').rglob('*.swift'))
+          missing=[p.relative_to(project/'OriginalTVOS_vBRDC357/Sources') for p in original
+                   if not (project/'PortedSource'/p.relative_to(project/'OriginalTVOS_vBRDC357/Sources')).is_file()]
+          if missing: sys.exit(f'ERROR: original source omitted from port: {missing}')
+          print(f'Original Swift source files: {len(original)}; ported Swift files: {len(ported)}; missing: 0')
+          with open(os.environ['GITHUB_ENV'],'a') as env: env.write(f'PROJECT_DIR={project}\n')
+          print('Using ORIGINAL Unity source:',project)
           PYTHON
-
-      - name: Select available Xcode
+      - name: Select Xcode and visionOS SDK
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -d /Applications/Xcode_16.4.app ]]; then
-            sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
-          fi
+          if [ -d /Applications/Xcode_16.4.app ]; then sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer; fi
           xcodebuild -version
-          if ! xcodebuild -showsdks | grep -q xrsimulator; then
-            xcodebuild -downloadPlatform visionOS
-          fi
-          xcodebuild -showsdks | grep -E 'visionOS|xros|xrsimulator'
-          xcodebuild -showsdks | grep -q -- '-sdk xros' || { echo 'visionOS device SDK not available'; exit 1; }
-
+          xcodebuild -showsdks | grep -q xrsimulator || xcodebuild -downloadPlatform visionOS
+          xcodebuild -showsdks | grep -E 'xros|xrsimulator'
       - name: Install XcodeGen
-        shell: bash
-        run: command -v xcodegen >/dev/null || brew install xcodegen
-
-      - name: Generate visionOS project
+        run: command -v xcodegen || brew install xcodegen
+      - name: Prepare original pinned players (KSPlayer and AetherEngine)
         shell: bash
         run: |
-          set -euo pipefail
           cd "$PROJECT_DIR"
+          bash Scripts/prepare_visionos_dependencies.sh 2>&1 | tee "$RUNNER_TEMP/vision-deps.log"
+      - name: Validate original app target and generate project
+        shell: bash
+        run: |
+          cd "$PROJECT_DIR"
+          test -f PortedSource/DebridChannelsTVOSApp.swift
+          test -f PortedSource/UnityAppCore.swift
+          test -f PortedSource/CatalogStore.swift
+          test -f PortedSource/MembershipEntitlementManager.swift
+          test -f PortedSource/BackendProfileBackupClient.swift
+          test -f PortedSource/PlaybackKit/PlaybackKitAetherSurface.swift
+          test -f PortedSource/PlaybackKit/PlaybackKitKSPlayerSurface.swift
           xcodegen generate --spec project.yml
-          test -d SignalVisionPro.xcodeproj
-
-      - name: Build visionOS Simulator
+          xcodebuild -list -project SignalVisionPro.xcodeproj
+      - name: Build ORIGINAL Unity root for visionOS Simulator (strict)
         shell: bash
         run: |
-          set -euo pipefail
+          set -o pipefail
           cd "$PROJECT_DIR"
-          xcodebuild \
-            -project SignalVisionPro.xcodeproj \
-            -scheme SignalVisionPro \
-            -configuration Release \
-            -sdk xrsimulator \
-            -destination 'generic/platform=visionOS Simulator' \
-            -derivedDataPath "$RUNNER_TEMP/SignalVisionProDerivedData" \
-            CODE_SIGNING_ALLOWED=NO \
-            build 2>&1 | tee "$RUNNER_TEMP/visionos-build.log"
-
-      - name: Package simulator app
+          xcodebuild -project SignalVisionPro.xcodeproj -scheme SignalVisionPro -configuration Release -sdk xrsimulator -destination 'generic/platform=visionOS Simulator' -derivedDataPath "$RUNNER_TEMP/SignalOriginalUnitySimulator" CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$RUNNER_TEMP/vision-original-unity-simulator.log"
+      - name: Build ORIGINAL Unity root for Vision Pro device (strict)
         shell: bash
         run: |
-          set -euo pipefail
-          APP="$RUNNER_TEMP/SignalVisionProDerivedData/Build/Products/Release-xrsimulator/SignalVisionPro.app"
-          test -d "$APP"
-          mkdir -p "$GITHUB_WORKSPACE/output"
-          ditto -c -k --sequesterRsrc --keepParent "$APP" "$GITHUB_WORKSPACE/output/SignalVisionPro-Simulator.zip"
-
-      - name: Build unsigned visionOS device app
-        shell: bash
-        run: |
-          set -euo pipefail
+          set -o pipefail
           cd "$PROJECT_DIR"
-          xcodebuild \
-            -project SignalVisionPro.xcodeproj \
-            -scheme SignalVisionPro \
-            -configuration Release \
-            -sdk xros \
-            -destination 'generic/platform=visionOS' \
-            -derivedDataPath "$RUNNER_TEMP/SignalVisionProDeviceDerivedData" \
-            CODE_SIGNING_ALLOWED=NO \
-            build 2>&1 | tee "$RUNNER_TEMP/visionos-device-build.log"
-
-      - name: Package unsigned Vision Pro IPA
+          xcodebuild -project SignalVisionPro.xcodeproj -scheme SignalVisionPro -configuration Release -sdk xros -destination 'generic/platform=visionOS' -derivedDataPath "$RUNNER_TEMP/SignalOriginalUnityDevice" CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$RUNNER_TEMP/vision-original-unity-device.log"
+      - name: Package actual original Unity device IPA
         shell: bash
         run: |
           set -euo pipefail
-          APP="$RUNNER_TEMP/SignalVisionProDeviceDerivedData/Build/Products/Release-xros/SignalVisionPro.app"
-          test -d "$APP"
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist" | grep -q '^SignalVisionPro$'
-          EXEC="$APP/SignalVisionPro"
-          test -s "$EXEC"
-          file "$EXEC" | grep -q 'Mach-O'
-          STAGE="$RUNNER_TEMP/visionos-ipa-stage"
-          mkdir -p "$STAGE/Payload" "$GITHUB_WORKSPACE/output"
-          cp -R "$APP" "$STAGE/Payload/"
-          (cd "$STAGE" && zip -qry "$GITHUB_WORKSPACE/output/SignalVisionPro-UNSIGNED-visionOS-DEVICE.ipa" Payload)
-          unzip -t "$GITHUB_WORKSPACE/output/SignalVisionPro-UNSIGNED-visionOS-DEVICE.ipa" | tail -1
-
-      - name: Upload build log
+          APP="$RUNNER_TEMP/SignalOriginalUnityDevice/Build/Products/Release-xros/SignalVisionPro.app"
+          test -s "$APP/SignalVisionPro"
+          test -s "$APP/Assets.car"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload" "$GITHUB_WORKSPACE/output"
+          ditto "$APP" "$RUNNER_TEMP/ipa/Payload/SignalVisionPro.app"
+          (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/output/SignalVisionPro-ORIGINAL-UNITY-UNSIGNED-DEVICE.ipa" Payload)
+      - name: Upload compile and dependency logs, even when build fails
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: SignalVisionPro-build-log
-          path: ${{ runner.temp }}/visionos-build.log
+          name: Original-Unity-visionOS-diagnostics
+          path: |
+            ${{ runner.temp }}/vision-deps.log
+            ${{ runner.temp }}/vision-original-unity-simulator.log
+            ${{ runner.temp }}/vision-original-unity-device.log
           if-no-files-found: ignore
-
-      - name: Upload device build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: SignalVisionPro-device-build-log
-          path: ${{ runner.temp }}/visionos-device-build.log
-          if-no-files-found: ignore
-
-      - name: Upload unsigned Vision Pro device IPA
+      - name: Upload IPA only when original Unity compiles
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: SignalVisionPro-UNSIGNED-visionOS-DEVICE-IPA
-          path: output/SignalVisionPro-UNSIGNED-visionOS-DEVICE.ipa
-          if-no-files-found: error
-
-      - name: Upload simulator app
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: SignalVisionPro-simulator
-          path: output/SignalVisionPro-Simulator.zip
-          if-no-files-found: ignore
+          name: SignalVisionPro-ORIGINAL-UNITY-DEVICE-IPA
+          path: output/SignalVisionPro-ORIGINAL-UNITY-UNSIGNED-DEVICE.ipa
           
