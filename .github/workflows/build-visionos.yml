@@ -1,4 +1,4 @@
-name: Signal Vision Pro Universal Builder v4
+name: Signal Vision Pro Universal Builder v4B
 
 on:
   workflow_dispatch:
@@ -197,36 +197,15 @@ jobs:
           SCHEMES_JSON="$RUNNER_TEMP/signal-xcode-schemes.json"
           xcodebuild -list -json -project "$PROJECT_FILE" > "$SCHEMES_JSON"
 
-          # XcodeGen project.yml is authoritative: find the target whose type is application.
-          APP_TARGET="$(python3 - <<'PY'
-import re
-from pathlib import Path
-t=Path("project.yml").read_text()
-targets=t.split("\ntargets:",1)[-1]
-blocks=re.split(r"(?m)^  (?=[^ \\n][^:\\n]*:\\s*$)", targets)
-for b in blocks:
-    m=re.match(r"([^:\\n]+):", b.strip())
-    if m and re.search(r"(?m)^    type:\\s*application\\b", "\n  "+b):
-        print(m.group(1).strip()); break
-PY
-)"
+          # Resolve the application target without YAML-breaking shell heredocs.
+          APP_TARGET="$(python3 -c 'import re,pathlib; t=pathlib.Path("project.yml").read_text(); ms=list(re.finditer(r"(?m)^  ([^:\n]+):\s*\n(?:(?:    .*\n)*)?    type:\s*application\b", t)); print(ms[0].group(1).strip() if ms else "")')"
           export APP_TARGET
 
-          SCHEME="$(python3 - "$SCHEMES_JSON" <<'PY'
-import json,os,sys
-schemes=json.load(open(sys.argv[1])).get("project",{}).get("schemes",[])
-app=os.environ.get("APP_TARGET","")
-reject=("aether","ffmpeg","package","test")
-if app in schemes:
-    print(app)
-else:
-    c=[x for x in schemes if not any(r in x.lower() for r in reject)]
-    p=[x for x in c if "signal" in x.lower() or "vision" in x.lower()]
-    print((p or c or [""])[0])
-PY
-)"
+          SCHEME="$(python3 -c 'import json,os,sys; schemes=json.load(open(sys.argv[1])).get("project",{}).get("schemes",[]); app=os.environ.get("APP_TARGET",""); reject=("aether","ffmpeg","package","test"); c=[x for x in schemes if not any(r in x.lower() for r in reject)]; p=[x for x in c if "signal" in x.lower() or "vision" in x.lower()]; print(app if app in schemes else ((p or c or [""])[0]))' "$SCHEMES_JSON")"
           if [ -z "$SCHEME" ]; then
-            echo "ERROR: no candidate Signal application scheme found"; cat "$SCHEMES_JSON"; exit 1
+            echo "ERROR: no candidate Signal application scheme found"
+            cat "$SCHEMES_JSON"
+            exit 1
           fi
 
           SETTINGS="$RUNNER_TEMP/signal-scheme-settings.txt"
