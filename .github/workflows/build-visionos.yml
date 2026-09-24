@@ -1,4 +1,4 @@
-name: Signal Vision Pro Universal Builder v2
+name: Signal Vision Pro Universal Builder v3
 
 on:
   workflow_dispatch:
@@ -171,11 +171,17 @@ jobs:
           test -d PortedSource
 
           # Parse every Swift source cheaply before Xcode's expensive dependency build.
-          mapfile -t SWIFT_FILES < <(find PortedSource -type f -name '*.swift' -print)
-          if [ "${#SWIFT_FILES[@]}" -eq 0 ]; then
+          # GitHub macOS runners still use Apple Bash 3.2, which has no `mapfile`.
+          SWIFT_LIST="$RUNNER_TEMP/signal-swift-files.txt"
+          find PortedSource -type f -name '*.swift' -print > "$SWIFT_LIST"
+          if [ ! -s "$SWIFT_LIST" ]; then
             echo "ERROR: PortedSource contains no Swift files"; exit 1
           fi
-          xcrun swiftc -frontend -parse "${SWIFT_FILES[@]}"
+          SWIFT_COUNT="$(wc -l < "$SWIFT_LIST" | tr -d ' ')"
+          echo "Parsing $SWIFT_COUNT Swift source files"
+          while IFS= read -r swift_file; do
+            xcrun swiftc -frontend -parse "$swift_file"
+          done < "$SWIFT_LIST"
 
           # Optional package-specific validation scripts.
           if [ -f Scripts/verify_cinema_plist.py ] && [ -f PortedSource/VisionInfo.plist ]; then
