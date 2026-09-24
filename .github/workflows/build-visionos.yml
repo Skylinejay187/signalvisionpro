@@ -1,4 +1,4 @@
-name: Signal Vision Pro Universal Builder v4B
+name: Signal Vision Pro Universal Builder v4C
 
 on:
   workflow_dispatch:
@@ -216,6 +216,7 @@ jobs:
             exit 1
           fi
           echo "Selected application scheme: $SCHEME"
+          echo "XCODE_PROJECT=$PROJECT_FILE" >> "$GITHUB_ENV"
           echo "XCODE_SCHEME=$SCHEME" >> "$GITHUB_ENV"
           echo "Generated project: $PROJECT_FILE"
           echo "Selected scheme: $SCHEME"
