@@ -1,4 +1,4 @@
-name: Signal Vision Pro Universal Builder
+name: Signal Vision Pro Universal Builder v2
 
 on:
   workflow_dispatch:
@@ -150,8 +150,13 @@ jobs:
           if [ -f Scripts/fetch_cinema_assets.py ]; then
             mkdir -p Resources/Cinema
             if [ ! -s Resources/Cinema/ASSET_SOURCES.txt ]; then
-              python3 -m pip install --disable-pip-version-check --quiet trimesh numpy pillow
-              python3 Scripts/fetch_cinema_assets.py --output Resources/Cinema
+              # GitHub's macOS/Homebrew Python is PEP 668 externally managed.
+              # Keep build tooling isolated so this remains portable across future runners.
+              VENV="$RUNNER_TEMP/signal-cinema-venv"
+              python3 -m venv "$VENV"
+              "$VENV/bin/python" -m pip install --disable-pip-version-check --quiet --upgrade pip
+              "$VENV/bin/python" -m pip install --disable-pip-version-check --quiet trimesh numpy pillow
+              "$VENV/bin/python" Scripts/fetch_cinema_assets.py --output Resources/Cinema
             else
               echo "Using cached cinema assets."
             fi
