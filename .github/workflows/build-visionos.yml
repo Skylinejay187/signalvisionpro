@@ -1,4 +1,4 @@
-name: Signal Vision Pro Universal Builder v3
+name: Signal Vision Pro Universal Builder v4
 
 on:
   workflow_dispatch:
@@ -194,10 +194,49 @@ jobs:
           if [ -z "$PROJECT_FILE" ]; then echo "ERROR: XcodeGen produced no .xcodeproj"; exit 1; fi
           PROJECT_FILE="${PROJECT_FILE#./}"
 
-          SCHEME="$(xcodebuild -list -json -project "$PROJECT_FILE" | python3 -c 'import json,sys; d=json.load(sys.stdin); s=d.get("project",{}).get("schemes",[]); print(s[0] if s else "")')"
-          if [ -z "$SCHEME" ]; then echo "ERROR: no shared/buildable scheme detected"; exit 1; fi
+          SCHEMES_JSON="$RUNNER_TEMP/signal-xcode-schemes.json"
+          xcodebuild -list -json -project "$PROJECT_FILE" > "$SCHEMES_JSON"
 
-          echo "XCODE_PROJECT=$PROJECT_FILE" >> "$GITHUB_ENV"
+          # XcodeGen project.yml is authoritative: find the target whose type is application.
+          APP_TARGET="$(python3 - <<'PY'
+import re
+from pathlib import Path
+t=Path("project.yml").read_text()
+targets=t.split("\ntargets:",1)[-1]
+blocks=re.split(r"(?m)^  (?=[^ \\n][^:\\n]*:\\s*$)", targets)
+for b in blocks:
+    m=re.match(r"([^:\\n]+):", b.strip())
+    if m and re.search(r"(?m)^    type:\\s*application\\b", "\n  "+b):
+        print(m.group(1).strip()); break
+PY
+)"
+          export APP_TARGET
+
+          SCHEME="$(python3 - "$SCHEMES_JSON" <<'PY'
+import json,os,sys
+schemes=json.load(open(sys.argv[1])).get("project",{}).get("schemes",[])
+app=os.environ.get("APP_TARGET","")
+reject=("aether","ffmpeg","package","test")
+if app in schemes:
+    print(app)
+else:
+    c=[x for x in schemes if not any(r in x.lower() for r in reject)]
+    p=[x for x in c if "signal" in x.lower() or "vision" in x.lower()]
+    print((p or c or [""])[0])
+PY
+)"
+          if [ -z "$SCHEME" ]; then
+            echo "ERROR: no candidate Signal application scheme found"; cat "$SCHEMES_JSON"; exit 1
+          fi
+
+          SETTINGS="$RUNNER_TEMP/signal-scheme-settings.txt"
+          xcodebuild -showBuildSettings -project "$PROJECT_FILE" -scheme "$SCHEME" -sdk xros > "$SETTINGS"
+          if ! grep -Eq 'WRAPPER_EXTENSION = app|PRODUCT_TYPE = .*application' "$SETTINGS"; then
+            echo "ERROR: selected scheme '$SCHEME' is not an application product"
+            cat "$SCHEMES_JSON"
+            exit 1
+          fi
+          echo "Selected application scheme: $SCHEME"
           echo "XCODE_SCHEME=$SCHEME" >> "$GITHUB_ENV"
           echo "Generated project: $PROJECT_FILE"
           echo "Selected scheme: $SCHEME"
