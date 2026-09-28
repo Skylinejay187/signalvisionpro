@@ -173,6 +173,11 @@ jobs:
           test -s Scripts/export_paid_fab_usdz.py || { echo "ERROR: RESET10 USDZ exporter missing"; exit 1; }
           test -s "$SRC/movietheater.glb" || { echo "ERROR: authoritative movietheater.glb missing; full RESET10 source has not been transferred"; exit 1; }
           test -s "$SRC/movie_textures.zip" || { echo "ERROR: authoritative movie_textures.zip missing; full RESET10 source has not been transferred"; exit 1; }
+          # The authoritative upload keeps textures in its original ZIP. Expand it deterministically
+          # on the runner so large binary assets do not need a second manual GitHub upload.
+          rm -rf "$SRC/textures"
+          mkdir -p "$SRC/textures"
+          /usr/bin/unzip -q -j "$SRC/movie_textures.zip" -d "$SRC/textures"
           for tex in details_Base_color.png details_Normal_OpenGL.png details_Roughness.png Walls_Base_color.png Walls_Normal_OpenGL.png Walls_Roughness.png screen.png; do
             test -s "$SRC/textures/$tex" || { echo "ERROR: paid-theater texture missing: $tex"; exit 1; }
           done
