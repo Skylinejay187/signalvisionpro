@@ -3,7 +3,7 @@ name: Signal Vision Pro Universal Builder v4C
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, reset10-expanded]
 
 jobs:
   build-visionos:
@@ -162,6 +162,33 @@ jobs:
             fi
           fi
 
+      - name: Build and validate RESET10 paid Fab theater USDZ
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          SRC="SourceAssets/PaidFabMovieTheater"
+          OUT="Resources/Cinema/SignalPaidFabMovieTheater.usdz"
+          test -s "$SRC/movietheater.blend" || { echo "ERROR: authoritative movietheater.blend missing"; exit 1; }
+          test -s Scripts/export_paid_fab_usdz.py || { echo "ERROR: RESET10 USDZ exporter missing"; exit 1; }
+          test -s "$SRC/movietheater.glb" || { echo "ERROR: authoritative movietheater.glb missing; full RESET10 source has not been transferred"; exit 1; }
+          test -s "$SRC/movie_textures.zip" || { echo "ERROR: authoritative movie_textures.zip missing; full RESET10 source has not been transferred"; exit 1; }
+          for tex in details_Base_color.png details_Normal_OpenGL.png details_Roughness.png Walls_Base_color.png Walls_Normal_OpenGL.png Walls_Roughness.png screen.png; do
+            test -s "$SRC/textures/$tex" || { echo "ERROR: paid-theater texture missing: $tex"; exit 1; }
+          done
+          if ! command -v blender >/dev/null 2>&1; then brew install --cask blender; fi
+          mkdir -p Resources/Cinema
+          rm -f "$OUT"
+          blender --background "$SRC/movietheater.blend" --python Scripts/export_paid_fab_usdz.py -- "$OUT" "$SRC"
+          test -s "$OUT"
+          BYTES="$(stat -f%z "$OUT")"
+          echo "Generated paid theater USDZ: $BYTES bytes"
+          [ "$BYTES" -ge 5000000 ] || { echo "ERROR: generated paid theater USDZ is suspiciously small"; exit 1; }
+          /usr/bin/unzip -t "$OUT"
+          if command -v usdchecker >/dev/null 2>&1; then usdchecker --arkit "$OUT";
+          elif xcrun --find usdchecker >/dev/null 2>&1; then xcrun usdchecker --arkit "$OUT";
+          else echo "ERROR: usdchecker unavailable; refusing unvalidated RESET10 theater build"; exit 1; fi
+
       - name: Validate source and generate Xcode project
         shell: bash
         run: |
@@ -246,6 +273,11 @@ jobs:
           test -f "$APP/Info.plist"
           echo "APP_PATH=$APP" >> "$GITHUB_ENV"
           echo "Compiled app: $APP"
+          PAID="$(find "$APP" -type f -name 'SignalPaidFabMovieTheater.usdz' -print -quit)"
+          test -n "$PAID" && test -s "$PAID" || { echo "ERROR: paid theater USDZ is not physically inside compiled .app"; exit 1; }
+          PAID_BYTES="$(stat -f%z "$PAID")"
+          [ "$PAID_BYTES" -ge 5000000 ] || { echo "ERROR: bundled paid theater USDZ is suspiciously small"; exit 1; }
+          echo "Bundled paid theater USDZ: $PAID ($PAID_BYTES bytes)"
 
           cd "$PROJECT_DIR"
           if [ -f Scripts/verify_cinema_plist.py ]; then
@@ -261,6 +293,15 @@ jobs:
           APP_NAME="$(basename "$APP_PATH")"
           ditto "$APP_PATH" "$RUNNER_TEMP/ipa/Payload/$APP_NAME"
           (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/output/SignalVisionPro-UNSIGNED-DEVICE.ipa" Payload)
+          IPA="$GITHUB_WORKSPACE/output/SignalVisionPro-UNSIGNED-DEVICE.ipa"
+          unzip -l "$IPA" | grep -q 'SignalPaidFabMovieTheater.usdz' || { echo "ERROR: packaged IPA does not contain paid theater USDZ"; exit 1; }
+          rm -rf "$RUNNER_TEMP/ipa-verify"; mkdir -p "$RUNNER_TEMP/ipa-verify"
+          unzip -q "$IPA" -d "$RUNNER_TEMP/ipa-verify"
+          IPA_PAID="$(find "$RUNNER_TEMP/ipa-verify/Payload" -type f -name 'SignalPaidFabMovieTheater.usdz' -print -quit)"
+          test -n "$IPA_PAID" && test -s "$IPA_PAID"
+          IPA_BYTES="$(stat -f%z "$IPA_PAID")"
+          [ "$IPA_BYTES" -ge 5000000 ] || { echo "ERROR: paid theater USDZ inside IPA is suspiciously small"; exit 1; }
+          echo "IPA paid theater verification passed: $IPA_BYTES bytes"
 
       - name: Upload Vision Pro IPA
         uses: actions/upload-artifact@v4
