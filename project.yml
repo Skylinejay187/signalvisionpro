@@ -1,0 +1,140 @@
+name: SignalVisionPro
+options:
+  bundleIdPrefix: com.channelsdebrid
+  deploymentTarget:
+    visionOS: '2.0'
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    MARKETING_VERSION: 0.9.0-RESET10
+    CURRENT_PROJECT_VERSION: '55'
+    PRODUCT_BUNDLE_IDENTIFIER: com.channelsdebrid.visionpro
+    GENERATE_INFOPLIST_FILE: 'NO'
+    INFOPLIST_FILE: PortedSource/VisionInfo.plist
+    INFOPLIST_KEY_CFBundleDisplayName: Signal
+    INFOPLIST_KEY_NSLocalNetworkUsageDescription: Signal accesses media and backend services on your local network.
+    TARGETED_DEVICE_FAMILY: '7'
+    CODE_SIGNING_ALLOWED: 'NO'
+    # Both Vision Pro and pinned Aether/FFmpeg simulator binaries are arm64.
+    # Configure architectures in XcodeGen itself: an older GitHub workflow must not
+    # silently request an incompatible x86_64 slice again.
+    ARCHS: arm64
+    EXCLUDED_ARCHS: x86_64
+packages:
+  KSPlayer:
+    path: Vendor/KSPNUVIO
+  AetherPlaybackKit:
+    path: Vendor/AetherPlaybackKit
+schemes:
+  SignalVisionPro:
+    build:
+      targets:
+        SignalVisionPro: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+targets:
+  SignalVisionPro:
+    type: application
+    platform: visionOS
+    deploymentTarget: '2.0'
+    # Single Info.plist authority: explicit INFOPLIST_FILE in target settings.
+    # Do not add XcodeGen target.info here: it can generate/overwrite a second plist.
+    sources:
+    - path: PortedSource/ReleaseCandidateSecurityManager.swift
+    - path: PortedSource/StableFeatureGateManager.swift
+    - path: PortedSource/Phase13RolloutManager.swift
+    - path: PortedSource/CastExplorerService.swift
+    - path: PortedSource/Phase15FinalIntegration.swift
+    - path: PortedSource/BackendProfileBackupClient.swift
+    - path: PortedSource/AuxiliaryVideoPlaybackCoordinator.swift
+    - path: PortedSource/MediaFlowProxyRouter.swift
+    - path: PortedSource/BackupStreamingClient.swift
+    - path: PortedSource/NuvioPluginClient.swift
+    - path: PortedSource/TorBoxUsenetClient.swift
+    - path: PortedSource/DebridCredentialBridge.swift
+    - path: PortedSource/ManagedAddonBridge.swift
+    - path: PortedSource/ConnectedServicesHealthClient.swift
+    - path: PortedSource/FocusedCardPreviewDiskCache.swift
+    - path: PortedSource/CatalogHeroMetadataCache.swift
+    - path: PortedSource/AutomaticSourceFailoverManager.swift
+    - path: PortedSource/CatalogStore.swift
+    - path: PortedSource/UnityAppCore.swift
+    - path: PortedSource/UnitySurfaceSystem.swift
+    - path: PortedSource/UnityFrameRuntime.swift
+    - path: PortedSource/UnityAnimationCoordinator.swift
+    - path: PortedSource/UnitySurfaceLifecycleCoordinator.swift
+    - path: PortedSource/UnityCatalogVisualSystem.swift
+    - path: PortedSource/AlternateAudioDiscoveryClient.swift
+    - path: PortedSource/AlternateAudioBridgeClient.swift
+    - path: PortedSource/AlternateAudioDiagnosticsClient.swift
+    - path: PortedSource/AlternateAudioCancellationClient.swift
+    - path: PortedSource/LocalIntroDetectionEngine.swift
+    - path: PortedSource/VODExclusivePlaybackGate.swift
+    - path: PortedSource/VODProductionMetadata.swift
+    - path: PortedSource/DebridNowShowingDirectPushManager.swift
+    - path: PortedSource/DebridChannelsTVOSApp.swift
+    - path: PortedSource/SignalImmersiveFoundation.swift
+    - path: PortedSource/SignalVisionNavigationCompat.swift
+    - path: PortedSource/SignalVisionPlaybackHandoff.swift
+    - path: PortedSource/SignalVisionLayerSurface.swift
+    - path: PortedSource/SignalVisionDiagnostics.swift
+    - path: PortedSource/RemoteImageFit.swift
+    - path: PortedSource/UniversalCodecSupport.swift
+    - path: PortedSource/PlaybackKit/PlaybackLaunchBenchmark.swift
+    - path: PortedSource/PlaybackKit/PlaybackKitFoundation.swift
+    - path: PortedSource/PlaybackKit/PlaybackKitAetherSurface.swift
+    - path: PortedSource/PlaybackKit/PlaybackCodecCompatibility.swift
+    - path: PortedSource/PlaybackKit/PlaybackKitKSPlayerSurface.swift
+    - path: PortedSource/ExternalPlayerSupport.swift
+    - path: PortedSource/PerTitlePlaybackMemory.swift
+    - path: PortedSource/TraktSyncManager.swift
+    - path: PortedSource/TraktCatalogService.swift
+    - path: PortedSource/PlaybackResumeCache.swift
+    - path: PortedSource/PlainHTTPClient.swift
+    - path: PortedSource/LiveTVProgramProgressLine.swift
+    - path: PortedSource/SportsChannelClassifierManager.swift
+    - path: PortedSource/SportsScoresScheduleProvider.swift
+    - path: PortedSource/SportsTickerFavoriteTeamsManager.swift
+    - path: PortedSource/MoviesShowsTickerManager.swift
+    - path: PortedSource/TrailerServiceManager.swift
+    - path: PortedSource/SignalYouTubeTrailerResolver.swift
+    - path: PortedSource/SourceIntelligenceManager.swift
+    - path: PortedSource/DebridResolverPreflightManager.swift
+    - path: PortedSource/LiveTVGuideCacheManager.swift
+    - path: PortedSource/LiveTVMemoryAuditManager.swift
+    - path: PortedSource/ReleaseStabilityMemoryAuditManager.swift
+    - path: PortedSource/CatalogArtworkCacheManager.swift
+    - path: PortedSource/NewEpisodeAlertsManager.swift
+    - path: PortedSource/PlaybackStateManager.swift
+    - path: PortedSource/SettingsStateFocusManager.swift
+    - path: PortedSource/MembershipEntitlementManager.swift
+    - path: PortedSource/AppWideStateAuditManager.swift
+    - path: PortedSource/NavigationFocusAuditManager.swift
+    - path: PortedSource/CacheStorageAuditManager.swift
+    - path: PortedSource/ErrorUserFeedbackManager.swift
+    - path: PortedSource/PerformanceLoadingOptimizationManager.swift
+    - path: PortedSource/DiagnosticsDeveloperToolsManager.swift
+    - path: PortedSource/FinalProductionQARegressionAuditManager.swift
+    - path: PortedSource/SportsCenterViewModel.swift
+    - path: PortedSource/SignalVisionWindowMetrics.swift
+    - path: Resources/Assets.xcassets
+      buildPhase: resources
+    - path: Resources/Cinema
+      buildPhase: resources
+    dependencies:
+    - package: KSPlayer
+      product: KSPlayer
+    - package: AetherPlaybackKit
+      product: AetherPlaybackBridge
+      embed: true
+    settings:
+      base:
+        PRODUCT_NAME: SignalVisionPro
+        GENERATE_INFOPLIST_FILE: 'NO'
+        INFOPLIST_FILE: PortedSource/VisionInfo.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ARCHS: arm64
+        EXCLUDED_ARCHS: x86_64
+        SWIFT_COMPILATION_MODE: singlefile
