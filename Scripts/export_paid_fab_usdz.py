@@ -18,12 +18,26 @@ for image in bpy.data.images:
         p=Path(bpy.path.abspath(image.filepath))
         if not p.exists(): missing.append((image.name,str(p)))
 if missing: raise SystemExit('Missing image dependencies: '+repr(missing))
-# Preserve authored object hierarchy/materials; do not apply speculative theater transforms here.
-kwargs=dict(filepath=str(out), export_materials=True, export_textures=True, relative_paths=True)
+# Preserve authored mesh hierarchy/materials, but strip Blender scene lights that export as
+# USD RectLight/DomeLight prims unsupported by ARKit. Signal/RealityKit owns runtime lighting.
+for obj in list(bpy.data.objects):
+    if obj.type == 'LIGHT':
+        bpy.data.objects.remove(obj, do_unlink=True)
+# ARKit USD requires a Y-up stage. This changes USD stage metadata/axis conversion only;
+# it is not a speculative theater placement transform.
+kwargs=dict(filepath=str(out), export_materials=True, export_textures=True, relative_paths=True, convert_orientation=True, export_global_forward_selection='NEGATIVE_Z', export_global_up_selection='Y')
 try:
     bpy.ops.wm.usd_export(**kwargs)
 except TypeError:
+    # Keep compatibility with Blender versions whose USD exporter lacks one or more
+    # optional texture/orientation keywords.
     kwargs.pop('export_textures', None)
-    bpy.ops.wm.usd_export(**kwargs)
+    try:
+        bpy.ops.wm.usd_export(**kwargs)
+    except TypeError:
+        kwargs.pop('convert_orientation', None)
+        kwargs.pop('export_global_forward_selection', None)
+        kwargs.pop('export_global_up_selection', None)
+        bpy.ops.wm.usd_export(**kwargs)
 if not out.exists() or out.stat().st_size < 1_000_000: raise SystemExit(f'USDZ export missing/suspiciously small: {out}')
 print(f'Exported {out} ({out.stat().st_size} bytes)')
