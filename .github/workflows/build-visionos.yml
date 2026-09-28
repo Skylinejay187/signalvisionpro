@@ -178,9 +178,10 @@ jobs:
           # runners do not provide a Docker daemon, so do not depend on Docker.
           command -v cmake >/dev/null || brew install cmake
           command -v ninja >/dev/null || brew install ninja
+          brew list nlohmann-json >/dev/null 2>&1 || brew install nlohmann-json
           TOOLROOT="$RUNNER_TEMP/usd_from_gltf"
           git clone --depth 1 --recursive https://github.com/google/usd_from_gltf.git "$TOOLROOT"
-          cmake -S "$TOOLROOT" -B "$TOOLROOT/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          cmake -S "$TOOLROOT" -B "$TOOLROOT/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_PREFIX_PATH="$(brew --prefix nlohmann-json)"
           cmake --build "$TOOLROOT/build" --config Release -j 3
           CONVERTER="$(find "$TOOLROOT/build" -type f -perm +111 \( -name usd_from_gltf -o -name usd_from_gltf_tool \) -print -quit)"
           [ -n "$CONVERTER" ] || { echo "ERROR: native usd_from_gltf executable not produced"; find "$TOOLROOT/build" -maxdepth 3 -type f | head -100; exit 1; }
