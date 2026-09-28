@@ -109,30 +109,31 @@ struct SignalImmersiveFoundationSpace: View {
 
             // RESET10D paid-asset isolation: intentionally NO Clean Room fallback.
             // Attach the purchased USDZ directly with its authored transform.
-            state.environmentStatus = "ISOLATION • USDZ load starting…"
-            Task { @MainActor in
-                do {
-                    let fab = try await Self.loadCinemaAsset(named: "SignalPaidFabMovieTheater")
-                    fab.name = "SignalPaidFabEnvironment"
-                    environments.addChild(fab)
-                    fab.isEnabled = true
-                    await Task.yield()
-                    guard fab.parent === environments else {
-                        throw SignalCinemaLoadError.sceneAttachmentFailed("ISOLATION: USDZ decoded but did not attach")
-                    }
-                    let audit = Self.renderabilityAudit(for: fab)
-                    let bounds = fab.visualBounds(relativeTo: environments)
-                    guard audit.isPaidTheaterRenderable,
-                          bounds.extents.x > 0.1, bounds.extents.y > 0.1, bounds.extents.z > 0.1 else {
-                        throw SignalCinemaLoadError.paidTheaterNotRenderable("ISOLATION: attached USDZ failed renderability: \(audit.summary)")
-                    }
-                    state.environmentStatus = String(format: "ISOLATION DIRECT • %d models • %.1f×%.1f×%.1fm",
-                                                     audit.modelCount, bounds.extents.x, bounds.extents.y, bounds.extents.z)
-                    print("[SignalCinema] ISOLATION direct USDZ attached: \(audit.summary), bounds=\(bounds)")
-                } catch {
-                    state.environmentStatus = "ISOLATION FAILED • \(error.localizedDescription)"
-                    print("[SignalCinema] ISOLATION paid USDZ failed: \(error)")
+            // RESET10E: follow Apple's RealityView make-path directly. Await the USDZ
+            // while RealityView is constructing and add the imported entity immediately;
+            // do not spawn a detached/delayed Task that mutates the hierarchy later.
+            state.environmentStatus = "APPLE PATH • loading paid USDZ…"
+            do {
+                let fab = try await Self.loadCinemaAsset(named: "SignalPaidFabMovieTheater")
+                fab.name = "SignalPaidFabEnvironment"
+                environments.addChild(fab)
+                fab.isEnabled = true
+
+                guard fab.parent === environments else {
+                    throw SignalCinemaLoadError.sceneAttachmentFailed("APPLE PATH: USDZ decoded but did not attach")
                 }
+                let audit = Self.renderabilityAudit(for: fab)
+                let bounds = fab.visualBounds(relativeTo: environments)
+                guard audit.isPaidTheaterRenderable,
+                      bounds.extents.x > 0.1, bounds.extents.y > 0.1, bounds.extents.z > 0.1 else {
+                    throw SignalCinemaLoadError.paidTheaterNotRenderable("APPLE PATH: attached USDZ failed renderability: \(audit.summary)")
+                }
+                state.environmentStatus = String(format: "APPLE PATH ACTIVE • %d models • %.1f×%.1f×%.1fm",
+                                                 audit.modelCount, bounds.extents.x, bounds.extents.y, bounds.extents.z)
+                print("[SignalCinema] APPLE PATH direct RealityView attach: \(audit.summary), bounds=\(bounds)")
+            } catch {
+                state.environmentStatus = "APPLE PATH FAILED • \(error.localizedDescription)"
+                print("[SignalCinema] APPLE PATH paid USDZ failed: \(error)")
             }
 
             if let tablet = attachments.entity(for: "signal-control-tablet") {
