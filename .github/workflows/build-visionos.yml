@@ -174,21 +174,24 @@ jobs:
           mkdir -p Resources/Cinema
           rm -f "$OUT"
 
-          # Use Google's native glTF -> USDZ converter. It accepts binary GLB directly
-          # and targets Apple's AR Quick Look/RealityKit-compatible USDZ subset.
-          # Run the published converter image on an amd64 Linux container because
-          # GitHub's Vision build host is arm64 macOS.
-          command -v docker >/dev/null || { echo "ERROR: Docker unavailable on runner"; exit 1; }
-          docker run --rm --platform linux/amd64             -v "$PROJECT_DIR:/usr/app"             leon/usd-from-gltf:latest             "SourceAssets/PaidFabMovieTheater/movietheater.glb"             "Resources/Cinema/SignalPaidFabMovieTheater.usdz"
+          # Build Google's converter natively on the macOS runner. Hosted macOS
+          # runners do not provide a Docker daemon, so do not depend on Docker.
+          command -v cmake >/dev/null || brew install cmake
+          command -v ninja >/dev/null || brew install ninja
+          TOOLROOT="$RUNNER_TEMP/usd_from_gltf"
+          git clone --depth 1 --recursive https://github.com/google/usd_from_gltf.git "$TOOLROOT"
+          cmake -S "$TOOLROOT" -B "$TOOLROOT/build" -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$TOOLROOT/build" --config Release -j 3
+          CONVERTER="$(find "$TOOLROOT/build" -type f -perm +111 \( -name usd_from_gltf -o -name usd_from_gltf_tool \) -print -quit)"
+          [ -n "$CONVERTER" ] || { echo "ERROR: native usd_from_gltf executable not produced"; find "$TOOLROOT/build" -maxdepth 3 -type f | head -100; exit 1; }
+          echo "Using native converter: $CONVERTER"
+          "$CONVERTER" "$IN" "$OUT"
 
           test -s "$OUT"
           BYTES="$(stat -f%z "$OUT")"
           echo "usd_from_gltf paid theater USDZ: $BYTES bytes"
           [ "$BYTES" -ge 5000000 ] || { echo "ERROR: converted USDZ is suspiciously small"; exit 1; }
           /usr/bin/unzip -t "$OUT"
-
-          # Validate with Apple's checker when Xcode exposes one. The package/bundle
-          # gates below remain mandatory even when the runner lacks usdchecker.
           if command -v usdchecker >/dev/null 2>&1; then usdchecker --arkit "$OUT";
           elif xcrun --find usdchecker >/dev/null 2>&1; then xcrun usdchecker --arkit "$OUT";
           else echo "INFO: Xcode usdchecker unavailable; continuing after USDZ archive validation."; fi
