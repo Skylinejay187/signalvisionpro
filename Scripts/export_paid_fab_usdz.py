@@ -25,7 +25,7 @@ for obj in list(bpy.data.objects):
         bpy.data.objects.remove(obj, do_unlink=True)
 # ARKit USD requires a Y-up stage. This changes USD stage metadata/axis conversion only;
 # it is not a speculative theater placement transform.
-kwargs=dict(filepath=str(out), export_materials=True, export_textures=True, relative_paths=True, convert_orientation=True, export_global_forward_selection='NEGATIVE_Z', export_global_up_selection='Y')
+kwargs=dict(filepath=str(out), export_materials=True, export_textures=True, relative_paths=True, convert_orientation=True, export_global_forward_selection='NEGATIVE_Z', export_global_up_selection='Y', export_lights=False)
 try:
     bpy.ops.wm.usd_export(**kwargs)
 except TypeError:
@@ -35,6 +35,7 @@ except TypeError:
     try:
         bpy.ops.wm.usd_export(**kwargs)
     except TypeError:
+        kwargs.pop('export_lights', None)
         kwargs.pop('convert_orientation', None)
         kwargs.pop('export_global_forward_selection', None)
         kwargs.pop('export_global_up_selection', None)
