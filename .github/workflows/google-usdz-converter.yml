@@ -1,0 +1,110 @@
+name: RESET10 Google USDZ Converter
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [reset10-expanded]
+    paths:
+      - 'SourceAssets/PaidFabMovieTheater/movietheater.glb'
+      - '.github/workflows/google-usdz-converter.yml'
+
+jobs:
+  convert-paid-theater:
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate authoritative GLB
+        shell: bash
+        run: |
+          set -euo pipefail
+          IN="SourceAssets/PaidFabMovieTheater/movietheater.glb"
+          test -s "$IN" || { echo "ERROR: authoritative movietheater.glb missing"; exit 1; }
+          BYTES="$(stat -f%z "$IN")"
+          [ "$BYTES" -ge 20000000 ] || { echo "ERROR: authoritative GLB is suspiciously small: $BYTES"; exit 1; }
+          echo "Authoritative GLB: $BYTES bytes"
+
+      - name: Install complete native toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew update
+          brew install cmake ninja nasm boost tbb libpng jpeg-turbo giflib draco nlohmann-json
+          python3 -m venv "$RUNNER_TEMP/google-usdz-venv"
+          "$RUNNER_TEMP/google-usdz-venv/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/google-usdz-venv/bin/python" -m pip install Pillow
+          echo "$RUNNER_TEMP/google-usdz-venv/bin" >> "$GITHUB_PATH"
+
+      - name: Build pinned OpenUSD runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          USD_SRC="$RUNNER_TEMP/USD"
+          USD_DIR="$RUNNER_TEMP/usd-install"
+          git clone --depth 1 --branch v20.05 https://github.com/PixarAnimationStudios/USD.git "$USD_SRC"
+          python "$USD_SRC/build_scripts/build_usd.py" "$USD_DIR" \
+            --no-python \
+            --no-imaging \
+            --no-usdview \
+            --no-tests \
+            --no-examples \
+            --no-tutorials \
+            --build-args USD,"-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
+          test -d "$USD_DIR/include/pxr" || { echo "ERROR: OpenUSD headers missing"; exit 1; }
+          test -d "$USD_DIR/lib" || { echo "ERROR: OpenUSD libraries missing"; exit 1; }
+          echo "USD_DIR=$USD_DIR" >> "$GITHUB_ENV"
+
+      - name: Build Google usd_from_gltf with its complete dependency installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          UFG_SRC="$RUNNER_TEMP/usd_from_gltf"
+          UFG_DIR="$RUNNER_TEMP/ufg-install"
+          git clone https://github.com/google/usd_from_gltf.git "$UFG_SRC"
+          git -C "$UFG_SRC" checkout 6d288cce8b68744494a226574ae1d7ba6a9c46eb
+          python "$UFG_SRC/tools/ufginstall/ufginstall.py" "$UFG_DIR" "$USD_DIR" --generator Ninja -v
+          CONVERTER="$UFG_DIR/bin/usd_from_gltf"
+          test -x "$CONVERTER" || { echo "ERROR: Google converter executable missing"; exit 1; }
+          echo "GOOGLE_CONVERTER=$CONVERTER" >> "$GITHUB_ENV"
+          echo "UFG_DIR=$UFG_DIR" >> "$GITHUB_ENV"
+
+      - name: Convert authoritative paid theater GLB
+        shell: bash
+        run: |
+          set -euo pipefail
+          IN="$GITHUB_WORKSPACE/SourceAssets/PaidFabMovieTheater/movietheater.glb"
+          OUTDIR="$GITHUB_WORKSPACE/output/google-converted"
+          OUT="$OUTDIR/SignalPaidFabMovieTheater-Google.usdz"
+          mkdir -p "$OUTDIR"
+          export DYLD_LIBRARY_PATH="$USD_DIR/lib:$UFG_DIR/lib:${DYLD_LIBRARY_PATH:-}"
+          "$GOOGLE_CONVERTER" "$IN" "$OUT"
+          test -s "$OUT" || { echo "ERROR: converter produced no USDZ"; exit 1; }
+          BYTES="$(stat -f%z "$OUT")"
+          echo "Google USDZ: $BYTES bytes"
+          [ "$BYTES" -ge 5000000 ] || { echo "ERROR: Google USDZ is suspiciously small"; exit 1; }
+          /usr/bin/unzip -t "$OUT"
+          shasum -a 256 "$IN" "$OUT" | tee "$OUTDIR/SHA256SUMS.txt"
+
+      - name: Validate Apple compatibility when usdchecker is available
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$GITHUB_WORKSPACE/output/google-converted/SignalPaidFabMovieTheater-Google.usdz"
+          if command -v usdchecker >/dev/null 2>&1; then
+            usdchecker --arkit "$OUT"
+          elif xcrun --find usdchecker >/dev/null 2>&1; then
+            xcrun usdchecker --arkit "$OUT"
+          else
+            echo "usdchecker is unavailable on this runner; archive integrity and size gates already passed."
+          fi
+
+      - name: Upload Google-converted paid theater
+        uses: actions/upload-artifact@v4
+        with:
+          name: SignalPaidFabMovieTheater-Google-USDZ
+          path: output/google-converted/
+          if-no-files-found: error
+          retention-days: 30
