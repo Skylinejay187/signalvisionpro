@@ -36,7 +36,7 @@ jobs:
           fi
           test -s "$ROOT/project.yml"
           test -s "$ROOT/PortedSource/SignalImmersiveFoundation.swift"
-          rsync -a --exclude='.git/' --exclude='.github/workflows/expand-reset10.yml' "$ROOT/" "$GITHUB_WORKSPACE/"
+          rsync -a --exclude='.git/' --exclude='.github/' "$ROOT/" "$GITHUB_WORKSPACE/"
           rm -f "$ZIP"
 
       - name: Verify expanded RESET10
@@ -54,7 +54,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -f .github/workflows/expand-reset10.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
