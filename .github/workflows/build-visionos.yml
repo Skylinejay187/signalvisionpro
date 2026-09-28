@@ -162,7 +162,7 @@ jobs:
             fi
           fi
 
-      - name: Convert authoritative GLB with Apple USDZ Tools
+      - name: Convert authoritative GLB with usd_from_gltf
         shell: bash
         run: |
           set -euo pipefail
@@ -174,30 +174,24 @@ jobs:
           mkdir -p Resources/Cinema
           rm -f "$OUT"
 
-          # Xcode 16.4 does not ship usdzconvert. Install the published Apple USDZ
-          # Python Tools mirror and keep Blender completely out of this test path.
-          TOOLROOT="$RUNNER_TEMP/usdpython"
-          git clone --depth 1 https://github.com/KarpelesLab/usdpython.git "$TOOLROOT"
-          CONVERTER="$(find "$TOOLROOT" -type f -name usdzconvert -print -quit)"
-          [ -n "$CONVERTER" ] || { echo "ERROR: usdzconvert not found in USDZ Tools package"; exit 1; }
-          chmod +x "$CONVERTER" || true
-          echo "Using USDZ Tools converter: $CONVERTER"
-          USD_DIR="$(dirname "$CONVERTER")"
-          export PATH="$USD_DIR:$PATH"
-          export PYTHONPATH="$USD_DIR/lib/python:${PYTHONPATH:-}"
-          if command -v python3.7 >/dev/null 2>&1; then
-            python3.7 "$CONVERTER" "$IN" "$OUT"
-          else
-            python3 "$CONVERTER" "$IN" "$OUT"
-          fi
+          # Use Google's native glTF -> USDZ converter. It accepts binary GLB directly
+          # and targets Apple's AR Quick Look/RealityKit-compatible USDZ subset.
+          # Run the published converter image on an amd64 Linux container because
+          # GitHub's Vision build host is arm64 macOS.
+          command -v docker >/dev/null || { echo "ERROR: Docker unavailable on runner"; exit 1; }
+          docker run --rm --platform linux/amd64             -v "$PROJECT_DIR:/usr/app"             leon/usd-from-gltf:latest             "SourceAssets/PaidFabMovieTheater/movietheater.glb"             "Resources/Cinema/SignalPaidFabMovieTheater.usdz"
+
           test -s "$OUT"
           BYTES="$(stat -f%z "$OUT")"
-          echo "Apple-USDZ-Tools paid theater USDZ: $BYTES bytes"
+          echo "usd_from_gltf paid theater USDZ: $BYTES bytes"
           [ "$BYTES" -ge 5000000 ] || { echo "ERROR: converted USDZ is suspiciously small"; exit 1; }
           /usr/bin/unzip -t "$OUT"
+
+          # Validate with Apple's checker when Xcode exposes one. The package/bundle
+          # gates below remain mandatory even when the runner lacks usdchecker.
           if command -v usdchecker >/dev/null 2>&1; then usdchecker --arkit "$OUT";
           elif xcrun --find usdchecker >/dev/null 2>&1; then xcrun usdchecker --arkit "$OUT";
-          else echo "WARNING: Xcode usdchecker unavailable; usdzconvert performs its own validation."; fi
+          else echo "INFO: Xcode usdchecker unavailable; continuing after USDZ archive validation."; fi
 
       - name: Validate source and generate Xcode project
         shell: bash
