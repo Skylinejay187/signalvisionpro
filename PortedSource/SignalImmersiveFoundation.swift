@@ -25,7 +25,7 @@ final class SignalImmersiveFoundationState: ObservableObject {
     @Published var environmentScale: Float = 1.0
     @Published var environmentDepth: Float = 0.0
     @Published var environmentHeight: Float = 0.0
-    @Published var environmentStatus: String = "Fallback ready — loading paid theater…"
+    @Published var environmentStatus: String = "ISOLATION • waiting for paid USDZ…"
 
     func resetTablet() {
         tabletX = 0.30
@@ -107,67 +107,32 @@ struct SignalImmersiveFoundationSpace: View {
             environments.name = "SignalEnvironmentContainer"
             root.addChild(environments)
 
-            // Never synchronously load USDZ content while visionOS is establishing
-            // the immersive scene. Apple explicitly warns that Entity.load(named:) blocks the
-            // main actor and can trigger the scene-update watchdog. Start with a lightweight
-            // scene, then asynchronously stream the paid environments after entry.
-            let clean = Self.makeCleanCinema()
-            clean.name = "SignalCleanRoomEnvironment"
-            environments.addChild(clean)
-
+            // RESET10D paid-asset isolation: intentionally NO Clean Room fallback.
+            // Attach the purchased USDZ directly with its authored transform.
+            state.environmentStatus = "ISOLATION • USDZ load starting…"
             Task { @MainActor in
-                // Give the immersive scene a chance to commit before starting asset I/O.
-                try? await Task.sleep(nanoseconds: 650_000_000)
-                state.environmentStatus = "Loading paid FAB theater…"
                 do {
                     let fab = try await Self.loadCinemaAsset(named: "SignalPaidFabMovieTheater")
                     fab.name = "SignalPaidFabEnvironment"
-                    await Task.yield()
-                    fab.components.set(Self.runtimeCalibration(for: fab, preferredRoomDepth: 18.0))
-                    Self.applyCalibratedEnvironmentTransform(fab, scaleFactor: 1.0, height: 0, depth: 0)
-                    // RESET9: attach deterministically to the CURRENT live container. Do not
-                    // infer attachment success from decode success. Explicitly enable the paid
-                    // entity and disable the fallback only after parentage is established.
                     environments.addChild(fab)
                     fab.isEnabled = true
                     await Task.yield()
                     guard fab.parent === environments else {
-                        throw SignalCinemaLoadError.sceneAttachmentFailed("FAB entity has no live environment parent")
+                        throw SignalCinemaLoadError.sceneAttachmentFailed("ISOLATION: USDZ decoded but did not attach")
                     }
                     let audit = Self.renderabilityAudit(for: fab)
-                    guard audit.isPaidTheaterRenderable else {
-                        fab.isEnabled = false
-                        clean.isEnabled = true
-                        throw SignalCinemaLoadError.paidTheaterNotRenderable("FAB renderability gate failed: \(audit.summary)")
+                    let bounds = fab.visualBounds(relativeTo: environments)
+                    guard audit.isPaidTheaterRenderable,
+                          bounds.extents.x > 0.1, bounds.extents.y > 0.1, bounds.extents.z > 0.1 else {
+                        throw SignalCinemaLoadError.paidTheaterNotRenderable("ISOLATION: attached USDZ failed renderability: \(audit.summary)")
                     }
-                    let attachedBounds = fab.visualBounds(relativeTo: environments)
-                    guard attachedBounds.extents.x > 0.1,
-                          attachedBounds.extents.y > 0.1,
-                          attachedBounds.extents.z > 0.1 else {
-                        fab.isEnabled = false
-                        clean.isEnabled = true
-                        throw SignalCinemaLoadError.paidTheaterNotRenderable("paid theater has empty post-attachment bounds")
-                    }
-
-                    // RESET10C: a successful decode/audit is not enough. The previous code
-                    // immediately called the generic visibility helper while the ready marker
-                    // was nested under the imported USD hierarchy. On-device testing proved
-                    // that could leave the clean fallback enabled over a valid FAB theater.
-                    // Commit the transition explicitly at the live environment-container level.
-                    let readyMarker = Entity()
-                    readyMarker.name = "SignalPaidFabRenderableMarker"
-                    fab.addChild(readyMarker)
-                    fab.isEnabled = true
-                    clean.isEnabled = false
-                    state.environmentStatus = String(
-                        format: "FAB ACTIVE • seats+walls+screen • %d models • %.1f×%.1f×%.1fm",
-                        audit.modelCount, attachedBounds.extents.x, attachedBounds.extents.y, attachedBounds.extents.z
-                    )
+                    state.environmentStatus = String(format: "ISOLATION DIRECT • %d models • %.1f×%.1f×%.1fm",
+                                                     audit.modelCount, bounds.extents.x, bounds.extents.y, bounds.extents.z)
+                    print("[SignalCinema] ISOLATION direct USDZ attached: \(audit.summary), bounds=\(bounds)")
                 } catch {
-                    state.environmentStatus = "FAB failed: \(error.localizedDescription)"
-                    print("[SignalCinema] async FAB load failed: \(error)")
+                    state.environmentStatus = "ISOLATION FAILED • \(error.localizedDescription)"
+                    print("[SignalCinema] ISOLATION paid USDZ failed: \(error)")
                 }
-
             }
 
             if let tablet = attachments.entity(for: "signal-control-tablet") {
@@ -314,22 +279,8 @@ struct SignalImmersiveFoundationSpace: View {
     }
 
     private static func updateEnvironmentVisibility(in root: Entity, selected: SignalCinemaEnvironment) {
-        let fab = root.findEntity(named: "SignalPaidFabEnvironment")
-        fab?.isEnabled = selected == .paidFab
-        // RESET10: do not hide the fallback merely because an entity exists or reports bounds.
-        // The FAB marker is created only after seats, walls and the architectural screen all
-        // resolve to real ModelComponents after live-scene attachment.
-        // findEntity(named:) is not relied on for readiness because the marker lives
-        // below a hierarchy imported from USDZ. A paid FAB entity is enabled only after all
-        // renderability gates pass; until then the clean room remains the fallback.
-        let fabReady = fab?.isEnabled == true && fab?.children.isEmpty == false
-        let selectedAssetReady = selected == .paidFab && fabReady
-        if selected == .cleanRoom {
-            fab?.isEnabled = false
-        } else if fabReady {
-            fab?.isEnabled = true
-        }
-        root.findEntity(named: "SignalCleanRoomEnvironment")?.isEnabled = selected == .cleanRoom || !selectedAssetReady
+        // RESET10D: no fallback and no imported-asset visibility mutation.
+        root.findEntity(named: "SignalPaidFabEnvironment")?.isEnabled = true
     }
 
     private struct RenderabilityAudit {
@@ -366,12 +317,7 @@ struct SignalImmersiveFoundationSpace: View {
     }
 
     private static func applyEnvironmentAdjustment(in root: Entity, state: SignalImmersiveFoundationState) {
-        let factor = max(0.80, min(1.25, state.environmentScale))
-        if let fab = root.findEntity(named: "SignalPaidFabEnvironment") {
-            applyCalibratedEnvironmentTransform(
-                fab, scaleFactor: factor, height: state.environmentHeight, depth: state.environmentDepth
-            )
-        }
+        // RESET10D: preserve the authored USDZ transform exactly.
     }
 
     private static func runtimeCalibration(for entity: Entity, preferredRoomDepth: Float) -> SignalEnvironmentCalibrationComponent {
