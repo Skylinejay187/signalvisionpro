@@ -162,37 +162,41 @@ jobs:
             fi
           fi
 
-      - name: Build and validate RESET10 paid Fab theater USDZ
+      - name: Convert authoritative GLB with Apple's USDZ tools
         shell: bash
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
           SRC="SourceAssets/PaidFabMovieTheater"
+          IN="$SRC/movietheater.glb"
           OUT="Resources/Cinema/SignalPaidFabMovieTheater.usdz"
-          test -s "$SRC/movietheater.blend" || { echo "ERROR: authoritative movietheater.blend missing"; exit 1; }
-          test -s Scripts/export_paid_fab_usdz.py || { echo "ERROR: RESET10 USDZ exporter missing"; exit 1; }
-          test -s "$SRC/movietheater.glb" || { echo "ERROR: authoritative movietheater.glb missing; full RESET10 source has not been transferred"; exit 1; }
-          test -s "$SRC/movie_textures.zip" || { echo "ERROR: authoritative movie_textures.zip missing; full RESET10 source has not been transferred"; exit 1; }
-          # The authoritative upload keeps textures in its original ZIP. Expand it deterministically
-          # on the runner so large binary assets do not need a second manual GitHub upload.
-          rm -rf "$SRC/textures"
-          mkdir -p "$SRC/textures"
-          /usr/bin/unzip -q -j "$SRC/movie_textures.zip" -d "$SRC/textures"
-          for tex in details_Base_color.png details_Normal_OpenGL.png details_Roughness.png Walls_Base_color.png Walls_Normal_OpenGL.png Walls_Roughness.png screen.png; do
-            test -s "$SRC/textures/$tex" || { echo "ERROR: paid-theater texture missing: $tex"; exit 1; }
-          done
-          if ! command -v blender >/dev/null 2>&1; then brew install --cask blender; fi
+          test -s "$IN" || { echo "ERROR: authoritative movietheater.glb missing"; exit 1; }
+          test -s "$SRC/movie_textures.zip" || { echo "ERROR: authoritative texture archive missing"; exit 1; }
           mkdir -p Resources/Cinema
           rm -f "$OUT"
-          blender --background "$SRC/movietheater.blend" --python Scripts/export_paid_fab_usdz.py -- "$OUT" "$SRC"
+
+          # Apple documents usdzconvert as its command-line USDZ converter. Prefer the
+          # Xcode-selected toolchain, then PATH. Do NOT silently fall back to Blender:
+          # this build exists specifically to prove the Apple conversion path.
+          if xcrun --find usdzconvert >/dev/null 2>&1; then
+            CONVERTER="$(xcrun --find usdzconvert)"
+          elif command -v usdzconvert >/dev/null 2>&1; then
+            CONVERTER="$(command -v usdzconvert)"
+          else
+            echo "ERROR: Apple's usdzconvert is unavailable on this runner."
+            echo "Install Apple's USDZ Tools / Reality Converter CLI rather than falling back to Blender."
+            exit 1
+          fi
+          echo "Using Apple converter: $CONVERTER"
+          "$CONVERTER" "$IN" "$OUT"
           test -s "$OUT"
           BYTES="$(stat -f%z "$OUT")"
-          echo "Generated paid theater USDZ: $BYTES bytes"
-          [ "$BYTES" -ge 5000000 ] || { echo "ERROR: generated paid theater USDZ is suspiciously small"; exit 1; }
+          echo "Apple-converted paid theater USDZ: $BYTES bytes"
+          [ "$BYTES" -ge 5000000 ] || { echo "ERROR: Apple-converted USDZ is suspiciously small"; exit 1; }
           /usr/bin/unzip -t "$OUT"
           if command -v usdchecker >/dev/null 2>&1; then usdchecker --arkit "$OUT";
           elif xcrun --find usdchecker >/dev/null 2>&1; then xcrun usdchecker --arkit "$OUT";
-          else echo "ERROR: usdchecker unavailable; refusing unvalidated RESET10 theater build"; exit 1; fi
+          else echo "ERROR: usdchecker unavailable"; exit 1; fi
 
       - name: Validate source and generate Xcode project
         shell: bash
