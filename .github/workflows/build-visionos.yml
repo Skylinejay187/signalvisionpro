@@ -184,10 +184,8 @@ jobs:
           # This older project asks CMake for a package literally named "json", not nlohmann_json.
           # Supply the tiny Findjson module it expects, pointing at Homebrew nlohmann-json headers.
           mkdir -p "$TOOLROOT/cmake"
-          cat > "$TOOLROOT/cmake/Findjson.cmake" <<EOF
-set(json_INCLUDE_DIR "$(brew --prefix nlohmann-json)/include")
-set(json_FOUND TRUE)
-EOF
+          JSON_INCLUDE="$(brew --prefix nlohmann-json)/include"
+          printf 'set(json_INCLUDE_DIR "%s")\\nset(json_FOUND TRUE)\\n' "$JSON_INCLUDE" > "$TOOLROOT/cmake/Findjson.cmake"
           cmake -S "$TOOLROOT" -B "$TOOLROOT/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_MODULE_PATH="$TOOLROOT/cmake"
           cmake --build "$TOOLROOT/build" --config Release -j 3
           CONVERTER="$(find "$TOOLROOT/build" -type f -perm +111 \( -name usd_from_gltf -o -name usd_from_gltf_tool \) -print -quit)"
