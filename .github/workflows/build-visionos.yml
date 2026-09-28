@@ -162,48 +162,37 @@ jobs:
             fi
           fi
 
-      - name: Convert authoritative GLB with usd_from_gltf
+      - name: Build and validate RESET10 paid Fab theater USDZ
         shell: bash
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
           SRC="SourceAssets/PaidFabMovieTheater"
-          IN="$SRC/movietheater.glb"
           OUT="Resources/Cinema/SignalPaidFabMovieTheater.usdz"
-          test -s "$IN" || { echo "ERROR: authoritative movietheater.glb missing"; exit 1; }
+          test -s "$SRC/movietheater.blend" || { echo "ERROR: authoritative movietheater.blend missing"; exit 1; }
+          test -s Scripts/export_paid_fab_usdz.py || { echo "ERROR: RESET10 USDZ exporter missing"; exit 1; }
+          test -s "$SRC/movietheater.glb" || { echo "ERROR: authoritative movietheater.glb missing; full RESET10 source has not been transferred"; exit 1; }
+          test -s "$SRC/movie_textures.zip" || { echo "ERROR: authoritative movie_textures.zip missing; full RESET10 source has not been transferred"; exit 1; }
+          # The authoritative upload keeps textures in its original ZIP. Expand it deterministically
+          # on the runner so large binary assets do not need a second manual GitHub upload.
+          rm -rf "$SRC/textures"
+          mkdir -p "$SRC/textures"
+          /usr/bin/unzip -q -j "$SRC/movie_textures.zip" -d "$SRC/textures"
+          for tex in details_Base_color.png details_Normal_OpenGL.png details_Roughness.png Walls_Base_color.png Walls_Normal_OpenGL.png Walls_Roughness.png screen.png; do
+            test -s "$SRC/textures/$tex" || { echo "ERROR: paid-theater texture missing: $tex"; exit 1; }
+          done
+          if ! command -v blender >/dev/null 2>&1; then brew install --cask blender; fi
           mkdir -p Resources/Cinema
           rm -f "$OUT"
-
-          # Build Google's converter natively on the macOS runner. Hosted macOS
-          # runners do not provide a Docker daemon, so do not depend on Docker.
-          command -v cmake >/dev/null || brew install cmake
-          command -v ninja >/dev/null || brew install ninja
-          brew list nlohmann-json >/dev/null 2>&1 || brew install nlohmann-json
-          brew list draco >/dev/null 2>&1 || brew install draco
-          TOOLROOT="$RUNNER_TEMP/usd_from_gltf"
-          git clone --depth 1 --recursive https://github.com/google/usd_from_gltf.git "$TOOLROOT"
-          # This older project asks CMake for a package literally named "json", not nlohmann_json.
-          # Supply the tiny Findjson module it expects, pointing at Homebrew nlohmann-json headers.
-          mkdir -p "$TOOLROOT/cmake"
-          JSON_INCLUDE="$(brew --prefix nlohmann-json)/include"
-          printf '%s\n' "set(json_INCLUDE_DIR \"$JSON_INCLUDE\")" "set(json_FOUND TRUE)" > "$TOOLROOT/cmake/Findjson.cmake"
-          DRACO_PREFIX="$(brew --prefix draco)"
-          printf '%s\n' "set(draco_INCLUDE_DIR \"$DRACO_PREFIX/include/draco\")" "set(draco_LIBRARY_DIR \"$DRACO_PREFIX/lib\")" "set(draco_FOUND TRUE)" > "$TOOLROOT/cmake/Finddraco.cmake"
-          cmake -S "$TOOLROOT" -B "$TOOLROOT/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_MODULE_PATH="$TOOLROOT/cmake"
-          cmake --build "$TOOLROOT/build" --config Release -j 3
-          CONVERTER="$(find "$TOOLROOT/build" -type f -perm +111 \( -name usd_from_gltf -o -name usd_from_gltf_tool \) -print -quit)"
-          [ -n "$CONVERTER" ] || { echo "ERROR: native usd_from_gltf executable not produced"; find "$TOOLROOT/build" -maxdepth 3 -type f | head -100; exit 1; }
-          echo "Using native converter: $CONVERTER"
-          "$CONVERTER" "$IN" "$OUT"
-
+          blender --background "$SRC/movietheater.blend" --python Scripts/export_paid_fab_usdz.py -- "$OUT" "$SRC"
           test -s "$OUT"
           BYTES="$(stat -f%z "$OUT")"
-          echo "usd_from_gltf paid theater USDZ: $BYTES bytes"
-          [ "$BYTES" -ge 5000000 ] || { echo "ERROR: converted USDZ is suspiciously small"; exit 1; }
+          echo "Generated paid theater USDZ: $BYTES bytes"
+          [ "$BYTES" -ge 5000000 ] || { echo "ERROR: generated paid theater USDZ is suspiciously small"; exit 1; }
           /usr/bin/unzip -t "$OUT"
           if command -v usdchecker >/dev/null 2>&1; then usdchecker --arkit "$OUT";
           elif xcrun --find usdchecker >/dev/null 2>&1; then xcrun usdchecker --arkit "$OUT";
-          else echo "INFO: Xcode usdchecker unavailable; continuing after USDZ archive validation."; fi
+          else echo "ERROR: usdchecker unavailable; refusing unvalidated RESET10 theater build"; exit 1; fi
 
       - name: Validate source and generate Xcode project
         shell: bash
