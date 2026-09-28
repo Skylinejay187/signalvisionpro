@@ -184,7 +184,7 @@ jobs:
           echo "Using USDZ Tools converter: $CONVERTER"
           USD_DIR="$(dirname "$CONVERTER")"
           export PATH="$USD_DIR:$PATH"
-          export PYTHONPATH="$USD_DIR/lib/python:$PYTHONPATH"
+          export PYTHONPATH="$USD_DIR/lib/python:${PYTHONPATH:-}"
           if command -v python3.7 >/dev/null 2>&1; then
             python3.7 "$CONVERTER" "$IN" "$OUT"
           else
