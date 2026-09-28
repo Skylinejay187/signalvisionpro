@@ -148,12 +148,19 @@ struct SignalImmersiveFoundationSpace: View {
                         clean.isEnabled = true
                         throw SignalCinemaLoadError.paidTheaterNotRenderable("paid theater has empty post-attachment bounds")
                     }
+
+                    // RESET10C: a successful decode/audit is not enough. The previous code
+                    // immediately called the generic visibility helper while the ready marker
+                    // was nested under the imported USD hierarchy. On-device testing proved
+                    // that could leave the clean fallback enabled over a valid FAB theater.
+                    // Commit the transition explicitly at the live environment-container level.
                     let readyMarker = Entity()
                     readyMarker.name = "SignalPaidFabRenderableMarker"
                     fab.addChild(readyMarker)
-                    Self.updateEnvironmentVisibility(in: root, selected: state.environment)
+                    fab.isEnabled = true
+                    clean.isEnabled = false
                     state.environmentStatus = String(
-                        format: "FAB mesh-ready • seats+walls+screen • %d models • %.1f×%.1f×%.1fm",
+                        format: "FAB ACTIVE • seats+walls+screen • %d models • %.1f×%.1f×%.1fm",
                         audit.modelCount, attachedBounds.extents.x, attachedBounds.extents.y, attachedBounds.extents.z
                     )
                 } catch {
@@ -312,8 +319,16 @@ struct SignalImmersiveFoundationSpace: View {
         // RESET10: do not hide the fallback merely because an entity exists or reports bounds.
         // The FAB marker is created only after seats, walls and the architectural screen all
         // resolve to real ModelComponents after live-scene attachment.
-        let fabReady = fab?.findEntity(named: "SignalPaidFabRenderableMarker") != nil
+        // findEntity(named:) is not relied on for readiness because the marker lives
+        // below a hierarchy imported from USDZ. A paid FAB entity is enabled only after all
+        // renderability gates pass; until then the clean room remains the fallback.
+        let fabReady = fab?.isEnabled == true && fab?.children.isEmpty == false
         let selectedAssetReady = selected == .paidFab && fabReady
+        if selected == .cleanRoom {
+            fab?.isEnabled = false
+        } else if fabReady {
+            fab?.isEnabled = true
+        }
         root.findEntity(named: "SignalCleanRoomEnvironment")?.isEnabled = selected == .cleanRoom || !selectedAssetReady
     }
 
