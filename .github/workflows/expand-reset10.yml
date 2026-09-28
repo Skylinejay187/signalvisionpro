@@ -1,0 +1,62 @@
+name: Expand RESET10 Repository
+
+on:
+  push:
+    branches: [reset10-expanded]
+    paths:
+      - '.github/workflows/expand-reset10.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  expand:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: reset10-expanded
+
+      - name: Expand RESET10 source ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP="Signal-VisionPro_RESET10_PAID_THEATER_SOURCE_CONVERSION_GITHUB_TEST.zip"
+          test -s "$ZIP"
+          rm -rf "$RUNNER_TEMP/reset10"
+          mkdir -p "$RUNNER_TEMP/reset10"
+          unzip -q "$ZIP" -d "$RUNNER_TEMP/reset10"
+          ROOT="$RUNNER_TEMP/reset10"
+          if [ ! -f "$ROOT/project.yml" ]; then
+            PROJECT_YML="$(find "$ROOT" -name project.yml -type f -print -quit)"
+            test -n "$PROJECT_YML"
+            ROOT="$(dirname "$PROJECT_YML")"
+          fi
+          test -s "$ROOT/project.yml"
+          test -s "$ROOT/PortedSource/SignalImmersiveFoundation.swift"
+          rsync -a --exclude='.git/' --exclude='.github/workflows/expand-reset10.yml' "$ROOT/" "$GITHUB_WORKSPACE/"
+          rm -f "$ZIP"
+
+      - name: Verify expanded RESET10
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s project.yml
+          test -s PortedSource/SignalImmersiveFoundation.swift
+          test -s Scripts/export_paid_fab_usdz.py
+          test -s .github/workflows/build-visionos.yml
+          grep -q "CURRENT_PROJECT_VERSION: '55'" project.yml
+          grep -q 'MARKETING_VERSION: 0.9.0-RESET10' project.yml
+
+      - name: Commit expanded filesystem
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/expand-reset10.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Expand RESET10 source filesystem"
+          git push origin HEAD:reset10-expanded
